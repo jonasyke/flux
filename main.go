@@ -1,37 +1,68 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"embed"
 	"log"
 
 	"github.com/jonasyke/flux/internal"
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 )
+
+var assets embed.FS
+
+type App struct {
+	ctx context.Context
+	db *DBClient
+	paths *internal.AppPaths
+}
+
+func NewApp(DBClient *DBClient, appPaths *internal.AppPaths) *App {
+	return &App{
+		db: DBClient,
+		paths: appPaths,
+	}
+}
+
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	log.Println("Wails application started, database and paths are live.")
+}
 
 func main() {
 	rootDir := internal.ResolveRootDir()
-	paths := internal.NewAppPath(rootDir)
+	appPaths := internal.NewAppPath(rootDir)
 
-	if err := paths.EnsureDirsExist(); err != nil {
-		log.Fatalf("FilePath could not be created: %v", err)
+	if err := appPaths.EnsureDirsExist(); err != nil {
+		log.Fatalf("Critical Error: FilePath could not be created: %v", err)
 	}
 
-	testURL := "https://github.com/octocat/Spoon-Knife/archive/refs/heads/main.zip"
-	fmt.Println("Starting download...")
-
-	savedPath, err := internal.DownloadModfile(testURL, paths)
+	dbURL := "postgres://postgres:postgres@localhost:5432/flux?sslmode=disable"
+	DBClient, err := NewDatabaseConnection(dbURL)
 	if err != nil {
-		fmt.Printf("Download failed: %v\n", err)
-		return
+		log.Fatalf("Critical Error: Database initialization failed: %v", err)
 	}
 
-	fmt.Printf("Success! Raw mod archive stored at: %s\n", savedPath)
+	defer DBClient.Close()
 
-	fmt.Println("Extracting mod archive...")
-	err = internal.ExtractMod(savedPath, paths)
+	app := NewApp(DBClient, &appPaths)
+
+	err = wails.Run(&options.App{
+		Title: "Flux Mod Manager",
+		Width: 1024,
+		Height: 768,
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+		OnStartup:        app.startup,
+		Bind: []interface{}{
+			app,
+		},
+	})
+
 	if err != nil {
-		fmt.Printf("Extraction failed: %v\n", err)
-		return
+		log.Fatalf("Wails execution encountered an error: %v", err)
 	}
-
-	fmt.Println("Extraction complete!")
 }
