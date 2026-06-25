@@ -11,6 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const ensureDefaultModProfile = `-- name: EnsureDefaultModProfile :exec
+INSERT INTO mods (id, name, author, description, source_url)
+VALUES (
+        1,
+        'Unassigned Local Mods',
+        'System',
+        'Placeholder profile for scanned local game files.',
+        ''
+    ) ON CONFLICT (id) DO NOTHING
+`
+
+func (q *Queries) EnsureDefaultModProfile(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, ensureDefaultModProfile)
+	return err
+}
+
 const getModByFilename = `-- name: GetModByFilename :one
 SELECT m.id, m.name, m.nexus_id, m.author, m.description, m.source_url, m.created_at, m.updated_at,
     mf.filename,
@@ -248,6 +264,52 @@ func (q *Queries) InsertMod(ctx context.Context, arg InsertModParams) (Mod, erro
 	return i, err
 }
 
+const saveScannedModFile = `-- name: SaveScannedModFile :one
+INSERT INTO mod_files (
+        mod_id,
+        filename,
+        file_path,
+        current_version,
+        latest_version
+    )
+VALUES ($1, $2, $3, $4, $5) ON CONFLICT (filename) DO
+UPDATE
+SET file_path = excluded.file_path
+RETURNING id, mod_id, filename, file_path, current_version, latest_version, game_version_compat, is_enabled, hash, installed_at
+`
+
+type SaveScannedModFileParams struct {
+	ModID          int32       `json:"mod_id"`
+	Filename       string      `json:"filename"`
+	FilePath       string      `json:"file_path"`
+	CurrentVersion string      `json:"current_version"`
+	LatestVersion  pgtype.Text `json:"latest_version"`
+}
+
+func (q *Queries) SaveScannedModFile(ctx context.Context, arg SaveScannedModFileParams) (ModFile, error) {
+	row := q.db.QueryRow(ctx, saveScannedModFile,
+		arg.ModID,
+		arg.Filename,
+		arg.FilePath,
+		arg.CurrentVersion,
+		arg.LatestVersion,
+	)
+	var i ModFile
+	err := row.Scan(
+		&i.ID,
+		&i.ModID,
+		&i.Filename,
+		&i.FilePath,
+		&i.CurrentVersion,
+		&i.LatestVersion,
+		&i.GameVersionCompat,
+		&i.IsEnabled,
+		&i.Hash,
+		&i.InstalledAt,
+	)
+	return i, err
+}
+
 const setModFileStatus = `-- name: SetModFileStatus :exec
 UPDATE mod_files
 SET is_enabled = $2
@@ -261,6 +323,22 @@ type SetModFileStatusParams struct {
 
 func (q *Queries) SetModFileStatus(ctx context.Context, arg SetModFileStatusParams) error {
 	_, err := q.db.Exec(ctx, setModFileStatus, arg.ID, arg.IsEnabled)
+	return err
+}
+
+const updateModFileStatus = `-- name: UpdateModFileStatus :exec
+UPDATE mod_files
+SET file_path = $2
+WHERE id = $1
+`
+
+type UpdateModFileStatusParams struct {
+	ID       int32  `json:"id"`
+	FilePath string `json:"file_path"`
+}
+
+func (q *Queries) UpdateModFileStatus(ctx context.Context, arg UpdateModFileStatusParams) error {
+	_, err := q.db.Exec(ctx, updateModFileStatus, arg.ID, arg.FilePath)
 	return err
 }
 

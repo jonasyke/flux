@@ -50,3 +50,28 @@ SELECT id,
 FROM mod_files
 WHERE game_version_compat <> $1
     AND is_enabled = TRUE;
+-- name: SaveScannedModFile :one
+INSERT INTO mod_files (
+        mod_id,
+        filename,
+        file_path,
+        current_version,
+        latest_version
+    )
+VALUES ($1, $2, $3, $4, $5) ON CONFLICT (filename) DO
+UPDATE
+SET file_path = excluded.file_path
+RETURNING *;
+-- name: EnsureDefaultModProfile :exec
+INSERT INTO mods (id, name, author, description, source_url)
+VALUES (
+        1,
+        'Unassigned Local Mods',
+        'System',
+        'Placeholder profile for scanned local game files.',
+        ''
+    ) ON CONFLICT (id) DO NOTHING;
+-- name: UpdateModFileStatus :exec
+UPDATE mod_files
+SET file_path = $2
+WHERE id = $1;

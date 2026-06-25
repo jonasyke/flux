@@ -11,13 +11,16 @@ import (
 )
 
 type Querier interface {
+	EnsureDefaultModProfile(ctx context.Context) error
 	GetModByFilename(ctx context.Context, filename string) (GetModByFilenameRow, error)
 	GetModlistFilesByListID(ctx context.Context, modlistID pgtype.UUID) ([]GetModlistFilesByListIDRow, error)
 	GetModlistWithMods(ctx context.Context, id pgtype.UUID) ([]GetModlistWithModsRow, error)
 	GetModsIncompatibleWithGameVersion(ctx context.Context, gameVersionCompat string) ([]GetModsIncompatibleWithGameVersionRow, error)
 	GetOutdatedModFiles(ctx context.Context) ([]GetOutdatedModFilesRow, error)
 	InsertMod(ctx context.Context, arg InsertModParams) (Mod, error)
+	SaveScannedModFile(ctx context.Context, arg SaveScannedModFileParams) (ModFile, error)
 	SetModFileStatus(ctx context.Context, arg SetModFileStatusParams) error
+	UpdateModFileStatus(ctx context.Context, arg UpdateModFileStatusParams) error
 	UpdateModVersionCheck(ctx context.Context, arg UpdateModVersionCheckParams) error
 }
 

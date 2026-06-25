@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"log"
+	"os"
 
 	"github.com/jonasyke/flux/internal"
 	"github.com/wailsapp/wails/v2"
@@ -39,7 +40,7 @@ func main() {
 		log.Fatalf("Critical Error: FilePath could not be created: %v", err)
 	}
 
-	dbURL := "postgres://postgres:postgres@localhost:5432/flux?sslmode=disable"
+	dbURL := os.Getenv("DB_URL")
 	DBClient, err := NewDatabaseConnection(dbURL)
 	if err != nil {
 		log.Fatalf("Critical Error: Database initialization failed: %v", err)

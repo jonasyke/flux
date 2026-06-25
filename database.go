@@ -39,6 +39,13 @@ func NewDatabaseConnection(databaseURL string) (*DBClient, error) {
 
 	queries := db.New(pool)
 
+	log.Println("Ensuring default database profiles exist... ")
+	err = queries.EnsureDefaultModProfile(ctx)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("failed to seed default mod profile: %w", err)
+	}
+
 	return &DBClient{
 		Pool: pool,
 		Queries: queries,
