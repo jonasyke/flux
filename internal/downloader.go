@@ -22,7 +22,7 @@ func (pt *ProgressTracker) Write(p []byte) (int, error) {
 		percentage := (float64(pt.BytesWritten) / float64(pt.TotalBytes)) * 100
 		fmt.Printf("\rDownloading... %.2f%% complete", percentage)
 
-		// 🚀 WAILS FUTURE: This is where you will add:
+		// WAILS FUTURE: This is where you will add:
 		// runtime.EventsEmit(pt.ctx, "download:progress", percentage)
 	}
 

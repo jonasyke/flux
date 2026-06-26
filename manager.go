@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jonasyke/flux/db"
@@ -68,4 +70,61 @@ func (a *App) DisableMod(modfileID int32, filename string, gamePaksDir string) e
 
 	log.Printf("Successfully quarantined %s", filename)
 	return nil
+}
+
+func (a *App) ImportModFile(sourceFilePath string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	srcInfo, err := os.Stat(sourceFilePath)
+	if os.IsNotExist(err) {
+		return "", fmt.Errorf("source file does not exist: %s", sourceFilePath)
+	}
+	if srcInfo.IsDir() {
+		return "", fmt.Errorf("selected path is a directory, please select a file")
+	}
+
+	filename := srcInfo.Name()
+	if strings.ToLower(filepath.Ext(filename)) != ".pak" {
+		return "", fmt.Errorf("invalid file type: only .pak files are supported")
+	}
+
+	if err := os.MkdirAll(a.paths.ActiveModsDir, os.ModePerm); err != nil {
+		return "", fmt.Errorf("failed to create quarantine directory structure: %w", err)
+	}
+
+	targetPath := filepath.Join(a.paths.ActiveModsDir, filename)
+
+	srcFile, err := os.Open(sourceFilePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer srcFile.Close()
+
+	destFile, err := os.Create(targetPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create staging file: %w", err)
+	}
+	defer destFile.Close()
+
+	log.Printf("Importing mod: Copying %s to staging quarantine...", filename)
+
+	_, err = io.Copy(destFile, srcFile)
+	if err != nil {
+		return "", fmt.Errorf("failed during file streaming copy: %w", err)
+	}
+
+	_, err = a.db.Queries.SaveScannedModFile(ctx, db.SaveScannedModFileParams{
+		ModID:          1,
+		Filename:       filename,
+		FilePath:       targetPath,
+		CurrentVersion: "1.0.0",
+	})
+	if err != nil {
+		_ = os.Remove(targetPath)
+		return "", fmt.Errorf("failed to log imported file to database: %w", err)
+	}
+
+	log.Printf("Successfully imported and staged %s", filename)
+	return filename, nil
 }

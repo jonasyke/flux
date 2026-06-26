@@ -1,0 +1,15 @@
+{
+  "name": "flux",
+  "outputfilename": "flux",
+  "frontend:dir": "frontend",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "http://localhost:5173",
+  "wailsjs:dir": "frontend/wailsjs",
+  "version": "1.0.0",
+  "author": {
+    "name": "jonasyke",
+    "email": "jonasyke171@gmail.com"
+  }
+}

@@ -13,9 +13,15 @@ type AppPaths struct {
 }
 
 func NewAppPath(root string) AppPaths {
-	rawDir := filepath.Join(root, "downloads", "cache", "rawdownloads")
+	rawDir := os.Getenv("RAW_DOWNLOADS_DIR")
+	if rawDir == "" {
+		rawDir = filepath.Join(root, "downloads", "cache", "rawdownloads")
+	}
 
-	modsDir := filepath.Join(root, "downloads", "storage", "mods")
+	modsDir := os.Getenv("ACTIVE_MOD_DIR")
+	if modsDir == "" {
+		modsDir = filepath.Join(root, "downloads", "storage", "mods")
+	}
 
 	return AppPaths{
 		Root:            root,
