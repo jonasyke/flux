@@ -2,35 +2,55 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 )
 
 type Config struct {
-	SteamPakPath   string `json:"steam_pak_path"`
-	AppDataPakPath string `json:"appdata_pak_path"`
-	NexusAPIKey    string `json:"nexus_api_key"`
+	GameModDir string `json:"game_mod_dir"`
+	CacheDir   string `json:"cache_dir"`
 }
 
-func LoadConfig(configPath string) (*Config, error) {
-	file, err := os.Open(configPath)
+var commonSteamPaths = []string{
+	`C:\Program Files (x86)\Steam\steamapps\common\Ready Or Not\ReadyOrNot\Content\Paks`,
+	`D:\SteamLibrary\steamapps\common\Ready Or Not\ReadyOrNot\Content\Paks`,
+	`/mnt/d/SteamLibrary/steamapps/common/Ready Or Not/ReadyOrNot/Content/Paks`,
+}
+
+func LoadConfig() (*Config, error) {
+	configFile := "config.json"
+	data, err := os.ReadFile(configFile)
+	if err == nil {
+		var cfg Config
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("corrupt config file: %w", err)
+		}
+		return &cfg, nil
+	}
+
+	detectedDir := ""
+	for _, candidate := range commonSteamPaths {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			detectedDir = candidate
+			break
+		}
+	}
+
+	if detectedDir == "" {
+		return nil, fmt.Errorf("could not find Ready Or Not install; please create config.json manually")
+	}
+
+	cfg := Config{
+		GameModDir: detectedDir,
+		CacheDir:   filepath.Join(".", "storage", "cache"),
+	}
+
+	data, err = json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	_ = os.WriteFile(configFile, data, 0644)
 
-	var cfg Config
-	err = json.NewDecoder(file).Decode(&cfg)
-	return &cfg, err
-}
-
-func SaveConfig(configPath string, cfg *Config) error {
-	file, err := os.Create(configPath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(cfg)
+	return &cfg, nil
 }

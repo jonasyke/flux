@@ -8,8 +8,7 @@ import (
 	"strings"
 )
 
-func CacheMods(modDir string) error {
-	newPath := "/home/jonasyke/workspace/github.com/jonasyke/flux/storage/cache"
+func CacheMods(modDir, cacheDir string) error {
 
 	mods, err := os.ReadDir(modDir)
 	if err != nil {
@@ -25,7 +24,7 @@ func CacheMods(modDir string) error {
 		}
 
 		oldFilePath := filepath.Join(modDir, name)
-		newFilePath := filepath.Join(newPath, name)
+		newFilePath := filepath.Join(cacheDir, name)
 		err = os.Rename(oldFilePath, newFilePath)
 		if err != nil {
 			copyErr := CopyMods(oldFilePath, newFilePath)

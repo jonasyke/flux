@@ -1,20 +1,25 @@
 package main
 
 import (
-	fm "flux/file_management"
 	"fmt"
 	"log"
+
+	"flux/config"
+	fm "flux/file_management"
 )
 
 func main() {
 
-	pakDir := "/mnt/d/SteamLibrary/steamapps/common/Ready Or Not/ReadyOrNot/Content/Paks"
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Configuration error: %v", err)
+	}
 
-	exists := fm.DirExists(pakDir)
+	exists := fm.DirExists(cfg.GameModDir)
 
 	fmt.Printf("Did we find the folder: %v\n", exists)
 
-	mods, err := fm.ReadModFiles(pakDir)
+	mods, err := fm.ReadModFiles(cfg.GameModDir)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -23,7 +28,7 @@ func main() {
 		fmt.Printf("mod: %s\n", mod)
 	}
 
-	err = fm.CacheMods(pakDir)
+	err = fm.CacheMods(cfg.GameModDir, cfg.CacheDir)
 	if err != nil {
 		log.Fatal(err)
 	}
