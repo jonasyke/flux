@@ -23,4 +23,9 @@ func main() {
 		fmt.Printf("mod: %s\n", mod)
 	}
 
+	err = fm.CacheMods(pakDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 }
