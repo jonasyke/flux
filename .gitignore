@@ -1,3 +1,6 @@
 storage/cache/*
 !storage/cache/.gitkeep
 
+config.json
+
+storage/flux.db

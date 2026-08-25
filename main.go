@@ -1,64 +1,36 @@
 package main
 
 import (
-	"fmt"
 	"log"
-	"path/filepath"
 
 	"flux/config"
-	fm "flux/file_management"
-	"flux/internal/database"
-	"flux/internal/steam"
+	"flux/internal/nexus"
 )
 
 func main() {
-
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Fatalf("Configuration error: %v", err)
+		log.Fatalf("Config error: %v", err)
 	}
 
-	if fm.DirExists(cfg.GameModDir) {
-		fmt.Println("Game mod/pak folder found.")
+	if cfg.NexusAPIKey == "" {
+		log.Println("No Nexus API key provided in config.json. Skipping Nexus check.")
+		return
 	}
 
-	dbPath := filepath.Join(".", "storage", "flux.db")
-	db, err := database.InitDB(dbPath)
+	client := nexus.NewClient(cfg.NexusAPIKey)
+
+	err = client.ValidateKey()
 	if err != nil {
-		log.Fatalf("Database initialization failed: %v", err)
+		log.Fatalf("Nexus API Key validation failed: %v", err)
 	}
-	defer db.Close()
+	log.Println("Nexus API key validated successfully!")
 
-	log.Println("Database initialized successfully!")
-
-	currentBuildID, err := steam.GetCurrentBuildID(cfg.GameModDir, steam.ReadyOrNotAppID)
+	sampleModID := 1
+	details, err := client.GetModDetails(nexus.GameDomainName, sampleModID)
 	if err != nil {
-		log.Printf("Warning: Could not check Steam version: %v\n", err)
+		log.Printf("Failed to get mod details: %v", err)
 	} else {
-		log.Printf("Current Game Build ID: %s\n", currentBuildID)
-
-		lastBuildID, err := database.GetLastBuildID(db, steam.ReadyOrNotAppID)
-		if err != nil {
-			log.Fatalf("Failed to fetch last build ID: %v", err)
-		}
-
-		if lastBuildID == "" {
-			log.Println("First run detected. Recording current game version...")
-			_ = database.SaveBuildID(db, steam.ReadyOrNotAppID, currentBuildID)
-		} else if lastBuildID != currentBuildID {
-			log.Printf("GAME UPDATE DETECTED! Old build: %s -> New build: %s\n", lastBuildID, currentBuildID)
-			log.Println("Safely caching mods to prevent crashes...")
-
-			err := fm.CacheMods(cfg.GameModDir, cfg.CacheDir)
-			if err != nil {
-				log.Printf("Error caching mods: %v\n", err)
-			} else {
-				log.Println("Mods moved to cache successfully.")
-			}
-			_ = database.SaveBuildID(db, steam.ReadyOrNotAppID, currentBuildID)
-		} else {
-			log.Println("Game version matches last check. No update needed.")
-		}
+		log.Printf("Fetched Mod: %s (Latest Version: %s)", details.Name, details.Version)
 	}
-
 }

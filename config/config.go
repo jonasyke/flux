@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	GameModDir string `json:"game_mod_dir"`
-	CacheDir   string `json:"cache_dir"`
+	GameModDir  string `json:"game_mod_dir"`
+	CacheDir    string `json:"cache_dir"`
+	NexusAPIKey string `json:"nexus_api_key"`
 }
 
 var commonSteamPaths = []string{
