@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"flux/internal/database"
+	"flux/internal/ingest"
 	"flux/internal/nexus"
 )
 
@@ -177,5 +178,42 @@ func (m *ModManager) DiscoverAndRegister(folderPath string) error {
 		}
 	}
 
+	return nil
+}
+
+func (m *ModManager) UpdateModFromFile(downloadedFilePath, cacheDir string, nexusModID int) error {
+	mod, err := database.GetModByNexusID(m.db, nexusModID)
+	if err != nil {
+		return fmt.Errorf("could not find mod with Nexus ID %d in database: %w", nexusModID, err)
+	}
+
+	extractedPaks, err := ingest.ProcessDownloadedFile(downloadedFilePath, cacheDir)
+	if err != nil {
+		return fmt.Errorf("failed to ingest update file: %w", err)
+	}
+
+	if len(extractedPaks) == 0 {
+		return fmt.Errorf("no .pak file found inside %s", downloadedFilePath)
+	}
+
+	newFileName := extractedPaks[0]
+
+	if mod.FileName != newFileName {
+		oldCachePath := filepath.Join(cacheDir, mod.FileName)
+		_ = os.Remove(oldCachePath)
+	}
+
+	newVersion := mod.LatestVersion
+	details, err := m.nexusClient.GetModDetails(m.gameDomain, nexusModID)
+	if err == nil && details.Version != "" {
+		newVersion = details.Version
+	}
+
+	err = database.MarkModUpdated(m.db, mod.ID, newFileName, newVersion)
+	if err != nil {
+		return fmt.Errorf("failed to update mod record in database: %w", err)
+	}
+
+	log.Printf("Successfully updated %s to version %s (file: %s)!\n", mod.Name, newVersion, newFileName)
 	return nil
 }
