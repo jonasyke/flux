@@ -2,8 +2,11 @@ package main
 
 import (
 	"log"
+	"path/filepath"
 
 	"flux/config"
+	"flux/internal/database"
+	"flux/internal/manager"
 	"flux/internal/nexus"
 )
 
@@ -13,24 +16,44 @@ func main() {
 		log.Fatalf("Config error: %v", err)
 	}
 
+	dbPath := filepath.Join(".", "storage", "flux.db")
+	db, err := database.InitDB(dbPath)
+	if err != nil {
+		log.Fatalf("DB error: %v", err)
+	}
+	defer db.Close()
+
 	if cfg.NexusAPIKey == "" {
-		log.Println("No Nexus API key provided in config.json. Skipping Nexus check.")
-		return
+		log.Fatal("Nexus API key missing in config.json")
+	}
+	nexusClient := nexus.NewClient(cfg.NexusAPIKey)
+
+	testMod := database.Mod{
+		ID:             "mod-menu-sample",
+		Name:           "In-Game Menu Sample",
+		FileName:       "pakchunk99-Menu_P.pak",
+		CurrentVersion: "0.9.0",
+		NexusModID:     1,
+		IsActive:       true,
 	}
 
-	client := nexus.NewClient(cfg.NexusAPIKey)
-
-	err = client.ValidateKey()
+	err = database.UpsertMod(db, testMod)
 	if err != nil {
-		log.Fatalf("Nexus API Key validation failed: %v", err)
+		log.Fatalf("Failed to seed mod: %v", err)
 	}
-	log.Println("Nexus API key validated successfully!")
+	
+	modManager := manager.NewModManager(db, nexusClient, nexus.GameDomainName)
 
-	sampleModID := 1
-	details, err := client.GetModDetails(nexus.GameDomainName, sampleModID)
+	// 1. Discover and interactively register any new .pak files
+	err = modManager.DiscoverAndRegister(cfg.CacheDir)
 	if err != nil {
-		log.Printf("Failed to get mod details: %v", err)
-	} else {
-		log.Printf("Fetched Mod: %s (Latest Version: %s)", details.Name, details.Version)
+		log.Printf("Discovery error: %v\n", err)
+	}
+
+	// 2. Check for updates on all tracked mods
+	err = modManager.CheckForModUpdates()
+	if err != nil {
+		log.Fatalf("Update check error: %v", err)
 	}
 }
+

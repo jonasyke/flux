@@ -60,3 +60,45 @@ func GetAllMods(db *sql.DB) ([]Mod, error) {
 
 	return mods, nil
 }
+
+func UpdateLatestVersion(db *sql.DB, modID string, latestVersion string) error {
+	query := `
+	UPDATE mods 
+	SET latest_version = ?, updated_at = CURRENT_TIMESTAMP
+	WHERE id = ?;
+	`
+	_, err := db.Exec(query, latestVersion, modID)
+	if err != nil {
+		return fmt.Errorf("failed to update latest version for mod %s: %w", modID, err)
+	}
+	return nil
+}
+
+func GetOutdatedMods(db *sql.DB) ([]Mod, error) {
+	query := `
+	SELECT id, name, file_name, current_version, latest_version, nexus_mod_id, is_active 
+	FROM mods 
+	WHERE latest_version IS NOT NULL AND current_version != latest_version;
+	`
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var outdated []Mod
+	for rows.Next() {
+		var m Mod
+		var latest sql.NullString
+		err := rows.Scan(&m.ID, &m.Name, &m.FileName, &m.CurrentVersion, &latest, &m.NexusModID, &m.IsActive)
+		if err != nil {
+			return nil, err
+		}
+		if latest.Valid {
+			m.LatestVersion = latest.String
+		}
+		outdated = append(outdated, m)
+	}
+
+	return outdated, nil
+}
