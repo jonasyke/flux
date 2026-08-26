@@ -22,12 +22,18 @@ type ModManager struct {
 	gameDomain  string
 }
 
-type ModSeed struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	FileName       string `json:"file_name"`
-	NexusModID     int    `json:"nexus_mod_id"`
-	CurrentVersion string `json:"current_version"`
+type ProfileFile struct {
+	ProfileName string           `json:"profile_name"`
+	GameDomain  string           `json:"game_domain"`
+	Mods        []ProfileModItem `json:"mods"`
+}
+
+type ProfileModItem struct {
+	ID         string `json:"id,omitempty"`
+	Name       string `json:"name"`
+	FileName   string `json:"file_name"`
+	NexusModID int    `json:"nexus_mod_id"`
+	Version    string `json:"version"`
 }
 
 func NewModManager(db *sql.DB, client *nexus.Client, gameDomain string) *ModManager {
@@ -86,24 +92,29 @@ func (m *ModManager) ImportModsFromJSON(filePath string) error {
 		return fmt.Errorf("failed to read %s: %w", filePath, err)
 	}
 
-	var seeds []ModSeed
-	if err := json.Unmarshal(data, &seeds); err != nil {
+	var items []ProfileModItem
+	if err := json.Unmarshal(data, &items); err != nil {
 		return fmt.Errorf("failed to parse %s: %w", filePath, err)
 	}
 
-	for _, seed := range seeds {
+	for _, item := range items {
+		modID := item.ID
+		if modID == "" {
+			modID = fmt.Sprintf("nexus-%d", item.NexusModID)
+		}
+
 		mod := database.Mod{
-			ID:             seed.ID,
-			Name:           seed.Name,
-			FileName:       seed.FileName,
-			CurrentVersion: seed.CurrentVersion,
-			NexusModID:     seed.NexusModID,
+			ID:             modID,
+			Name:           item.Name,
+			FileName:       item.FileName,
+			CurrentVersion: item.Version,
+			NexusModID:     item.NexusModID,
 			IsActive:       true,
 		}
 		if err := database.UpsertMod(m.db, mod); err != nil {
-			log.Printf("Failed to import %s: %v\n", seed.Name, err)
+			log.Printf("Failed to import %s: %v\n", item.Name, err)
 		} else {
-			log.Printf("Imported / updated tracked mod: %s\n", seed.Name)
+			log.Printf("Imported / updated tracked mod: %s\n", item.Name)
 		}
 	}
 
@@ -215,5 +226,90 @@ func (m *ModManager) UpdateModFromFile(downloadedFilePath, cacheDir string, nexu
 	}
 
 	log.Printf("Successfully updated %s to version %s (file: %s)!\n", mod.Name, newVersion, newFileName)
+	return nil
+}
+
+func (m *ModManager) ExportProfileToFile(profileName, outputPath string) error {
+	profile, err := database.ExportActiveProfile(m.db, profileName)
+	if err != nil {
+		return fmt.Errorf("failed to export profile: %w", err)
+	}
+
+	var items []ProfileModItem
+	for _, mod := range profile.Mods {
+		items = append(items, ProfileModItem{
+			Name:       mod.Name,
+			NexusModID: mod.NexusModID,
+			Version:    mod.CurrentVersion,
+			FileName:   mod.FileName,
+		})
+	}
+
+	pf := ProfileFile{
+		ProfileName: profileName,
+		GameDomain:  m.gameDomain,
+		Mods:        items,
+	}
+
+	data, err := json.MarshalIndent(pf, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal profile: %w", err)
+	}
+
+	err = os.WriteFile(outputPath, data, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write profile file: %w", err)
+	}
+
+	log.Printf("Exported profile '%s' with %d mods to %s\n", profileName, len(items), outputPath)
+	return nil
+}
+
+func (m *ModManager) InspectSharedProfile(profilePath string) error {
+	data, err := os.ReadFile(profilePath)
+	if err != nil {
+		return fmt.Errorf("could not read profile file: %w", err)
+	}
+
+	var pf ProfileFile
+	if err := json.Unmarshal(data, &pf); err != nil {
+		return fmt.Errorf("invalid profile file: %w", err)
+	}
+
+	log.Printf("=== Inspecting Shared Profile: %s (%s) ===\n", pf.ProfileName, pf.GameDomain)
+
+	localMods, err := database.GetAllMods(m.db)
+	if err != nil {
+		return fmt.Errorf("could not fetch local mods: %w", err)
+	}
+
+	localLookup := make(map[int]database.Mod)
+	for _, lm := range localMods {
+		if lm.NexusModID != 0 {
+			localLookup[lm.NexusModID] = lm
+		}
+	}
+
+	missingCount := 0
+	for _, item := range pf.Mods {
+		localMod, exists := localLookup[item.NexusModID]
+		if !exists {
+			missingCount++
+			fmt.Printf("[MISSING] %s (v%s) -> Link: https://www.nexusmods.com/%s/mods/%d\n",
+				item.Name, item.Version, pf.GameDomain, item.NexusModID)
+		} else if localMod.CurrentVersion != item.Version {
+			fmt.Printf("[VERSION MISMATCH] %s -> Friend has v%s, You have v%s\n",
+				item.Name, item.Version, localMod.CurrentVersion)
+		} else {
+			fmt.Printf("[MATCH] %s (v%s)\n", item.Name, item.Version)
+		}
+	}
+
+	if missingCount == 0 {
+		log.Println("All mods in this profile match your local installation!")
+	} else {
+		log.Printf("%d mod(s) are missing from your setup.\n", missingCount)
+	}
+
 	return nil
 }
