@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"flux/internal/database"
+	"flux/internal/file_management"
 	"flux/internal/ingest"
 	"flux/internal/nexus"
 )
@@ -194,38 +195,52 @@ func (m *ModManager) DiscoverAndRegister(folderPath string) error {
 
 func (m *ModManager) UpdateModFromFile(downloadedFilePath, cacheDir string, nexusModID int) error {
 	mod, err := database.GetModByNexusID(m.db, nexusModID)
+	isNew := false
 	if err != nil {
-		return fmt.Errorf("could not find mod with Nexus ID %d in database: %w", nexusModID, err)
+		isNew = true
 	}
 
 	extractedPaks, err := ingest.ProcessDownloadedFile(downloadedFilePath, cacheDir)
 	if err != nil {
 		return fmt.Errorf("failed to ingest update file: %w", err)
 	}
-
 	if len(extractedPaks) == 0 {
 		return fmt.Errorf("no .pak file found inside %s", downloadedFilePath)
 	}
-
 	newFileName := extractedPaks[0]
+
+	details, err := m.nexusClient.GetModDetails(m.gameDomain, nexusModID)
+	if err != nil {
+		return fmt.Errorf("could not fetch mod details for ID %d: %w", nexusModID, err)
+	}
+
+	if isNew {
+		newMod := database.Mod{
+			ID:             fmt.Sprintf("nexus-%d", nexusModID),
+			Name:           details.Name,
+			FileName:       newFileName,
+			CurrentVersion: details.Version,
+			LatestVersion:  details.Version,
+			NexusModID:     nexusModID,
+			IsActive:       true,
+		}
+		if err := database.UpsertMod(m.db, newMod); err != nil {
+			return fmt.Errorf("failed to register new mod: %w", err)
+		}
+		log.Printf("Successfully registered new mod %s (v%s) from download\n", details.Name, details.Version)
+		return nil
+	}
 
 	if mod.FileName != newFileName {
 		oldCachePath := filepath.Join(cacheDir, mod.FileName)
 		_ = os.Remove(oldCachePath)
 	}
 
-	newVersion := mod.LatestVersion
-	details, err := m.nexusClient.GetModDetails(m.gameDomain, nexusModID)
-	if err == nil && details.Version != "" {
-		newVersion = details.Version
+	if err := database.MarkModUpdated(m.db, mod.ID, newFileName, details.Version); err != nil {
+		return fmt.Errorf("failed to update mod record: %w", err)
 	}
 
-	err = database.MarkModUpdated(m.db, mod.ID, newFileName, newVersion)
-	if err != nil {
-		return fmt.Errorf("failed to update mod record in database: %w", err)
-	}
-
-	log.Printf("Successfully updated %s to version %s (file: %s)!\n", mod.Name, newVersion, newFileName)
+	log.Printf("Successfully updated %s to version %s (file: %s)!\n", details.Name, details.Version, newFileName)
 	return nil
 }
 
@@ -312,4 +327,40 @@ func (m *ModManager) InspectSharedProfile(profilePath string) error {
 	}
 
 	return nil
+}
+
+func (m *ModManager) HandleNXMLink(rawURL, cacheDir string) error {
+	link, err := nexus.ParseNXM(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse nxm link: %w", err)
+	}
+
+	if link.GameDomain != nexus.GameDomainName {
+		return fmt.Errorf("this link is for %q; Flux currently only supports %q",
+			link.GameDomain, nexus.GameDomainName)
+	}
+
+	log.Printf("NXM → mod %d / file %d", link.ModID, link.FileID)
+
+	links, err := m.nexusClient.GetDownloadURLs(
+		link.GameDomain,
+		link.ModID,
+		link.FileID,
+		link.Key,
+		link.Expires,
+	)
+	if err != nil {
+		return fmt.Errorf("resolve download URL: %w", err)
+	}
+
+	cdnURL := links[0].URI
+	log.Printf("Downloading from CDN...")
+
+	tmpPath := filepath.Join(cacheDir, fmt.Sprintf("nxm_%d_%d.tmp", link.ModID, link.FileID))
+	if err := file_management.DownloadFile(cdnURL, tmpPath); err != nil {
+		return err
+	}
+	defer os.Remove(tmpPath)
+
+	return m.UpdateModFromFile(tmpPath, cacheDir, link.ModID)
 }

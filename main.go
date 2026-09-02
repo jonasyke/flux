@@ -5,12 +5,14 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"flux/config"
 	"flux/internal/database"
 	"flux/internal/file_management"
 	"flux/internal/manager"
 	"flux/internal/nexus"
+	"flux/internal/protocol"
 	"flux/internal/steam"
 )
 
@@ -22,6 +24,8 @@ Usage:
   flux <command> [arguments]
 
 Commands:
+  register-nxm              Register Flux as the nxm:// protocol handler
+  unregister-nxm            Remove the nxm:// registration
   check                     Check for game updates & mod updates
   deploy                    Deploy all active mods from cache to the game
   purge                     Safely remove all custom mods from the game
@@ -53,9 +57,29 @@ func main() {
 	nexusClient := nexus.NewClient(cfg.NexusAPIKey)
 	modManager := manager.NewModManager(db, nexusClient, nexus.GameDomainName)
 
+	if len(os.Args) >= 2 && strings.HasPrefix(os.Args[1], "nxm://") {
+		err := modManager.HandleNXMLink(os.Args[1], cfg.CacheDir)
+		if err != nil {
+			log.Fatalf("NXM download failed: %v", err)
+		}
+		fmt.Println("Download + registration complete.")
+		return
+	}
+
 	command := os.Args[1]
 
 	switch command {
+	case "register-nxm":
+		if err := protocol.RegisterNXM(); err != nil {
+			log.Fatalf("Failed to register nxm handler: %v", err)
+		}
+		fmt.Println("Registered Flux as the nxm:// protocol handler.")
+
+	case "unregister-nxm":
+		if err := protocol.UnregisterNXM(); err != nil {
+			log.Fatalf("Failed to unregister: %v", err)
+		}
+		fmt.Println("Unregistered nxm:// handler.")
 	case "check":
 		currentBuild, err := steam.GetCurrentBuildID(cfg.GameModDir, steam.ReadyOrNotAppID)
 		if err == nil {
